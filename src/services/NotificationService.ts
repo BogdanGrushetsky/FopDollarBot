@@ -11,7 +11,6 @@ interface UserNotificationState {
 
 export class NotificationService {
   private static userStates: Map<number, UserNotificationState> = new Map();
-  private static readonly MIN_PNL_CHANGE_PERCENT = 2; // Notify if P&L changes by 2% or more
   private static readonly MIN_NOTIFICATION_INTERVAL_HOURS = 6; // Don't spam more often than 6 hours
 
   /**
@@ -26,22 +25,74 @@ export class NotificationService {
         lastNotifiedRate: 0,
         lastNotificationTime: new Date(0) // Long time ago
       });
+      console.log(`✅ Registered user ${userId} (chat ${chatId}) for P&L notifications`);
     }
+  }
+
+  /**
+   * Test notification for a specific user (ignores time interval)
+   */
+  static async testNotification(bot: TelegramBot, userId: number, chatId: number): Promise<void> {
+    console.log(`🧪 Testing notification for user ${userId}...`);
+    
+    // Get user state or create new
+    let state = this.userStates.get(userId);
+    if (!state) {
+      state = {
+        userId,
+        chatId,
+        lastNotifiedPnL: 0,
+        lastNotifiedRate: 0,
+        lastNotificationTime: new Date(0)
+      };
+      this.userStates.set(userId, state);
+    }
+    
+    // Get current status
+    const status = await UsdService.getStatus(userId);
+    
+    if (status.balanceUsd === 0) {
+      await bot.sendMessage(chatId, 
+        '⚠️ <b>Test Notification</b>\n\n' +
+        'You have no USD balance. Add income using /add_usd to start receiving P&L notifications.',
+        { parse_mode: 'HTML' }
+      );
+      return;
+    }
+    
+    // Send test notification
+    await this.sendPnLNotification(bot, chatId, status, state);
+    
+    // Update state
+    state.lastNotifiedPnL = status.unrealizedProfitUah;
+    state.lastNotifiedRate = status.currentMonobankRate;
+    state.lastNotificationTime = new Date();
+    
+    console.log(`✅ Test notification sent to user ${userId}`);
   }
 
   /**
    * Check all registered users and send notifications if needed
    */
   static async checkAndNotify(bot: TelegramBot): Promise<void> {
-    console.log(`🔔 Checking ${this.userStates.size} users for P&L notifications...`);
+    const registeredCount = this.userStates.size;
+    console.log(`🔔 [${new Date().toLocaleString('uk-UA')}] Checking ${registeredCount} users for P&L notifications...`);
+    
+    if (registeredCount === 0) {
+      console.log('⚠️ No users registered for notifications yet');
+      return;
+    }
 
     for (const [userId, state] of this.userStates) {
       try {
+        console.log(`  📊 Checking user ${userId}...`);
         await this.checkUserPnL(bot, userId, state);
       } catch (error) {
-        console.error(`Error checking P&L for user ${userId}:`, error);
+        console.error(`  ❌ Error checking P&L for user ${userId}:`, error);
       }
     }
+    
+    console.log(`✅ P&L check completed`);
   }
 
   /**
@@ -57,6 +108,7 @@ export class NotificationService {
 
     // Skip if user has no balance
     if (status.balanceUsd === 0) {
+      console.log(`    ⏭️ User ${userId} has no USD balance, skipping`);
       return;
     }
 
@@ -64,24 +116,22 @@ export class NotificationService {
     const hoursSinceLastNotification = 
       (Date.now() - state.lastNotificationTime.getTime()) / (1000 * 60 * 60);
     
+    console.log(`    ⏱️ Hours since last notification: ${hoursSinceLastNotification.toFixed(1)}`);
+    
     if (hoursSinceLastNotification < this.MIN_NOTIFICATION_INTERVAL_HOURS) {
+      console.log(`    ⏭️ Too soon to notify (need ${this.MIN_NOTIFICATION_INTERVAL_HOURS} hours)`);
       return;
     }
 
-    // Calculate change percentage
-    const pnlChange = state.lastNotifiedPnL !== 0
-      ? Math.abs((status.unrealizedProfitUah - state.lastNotifiedPnL) / state.lastNotifiedPnL * 100)
-      : 100; // First time always notify
-
-    // Check if change is significant
-    if (pnlChange >= this.MIN_PNL_CHANGE_PERCENT || state.lastNotifiedPnL === 0) {
-      await this.sendPnLNotification(bot, state.chatId, status, state);
-      
-      // Update state
-      state.lastNotifiedPnL = status.unrealizedProfitUah;
-      state.lastNotifiedRate = status.currentMonobankRate;
-      state.lastNotificationTime = new Date();
-    }
+    // Send notification (no percentage threshold check)
+    console.log(`    📤 Sending P&L notification to user ${userId}`);
+    await this.sendPnLNotification(bot, state.chatId, status, state);
+    
+    // Update state
+    state.lastNotifiedPnL = status.unrealizedProfitUah;
+    state.lastNotifiedRate = status.currentMonobankRate;
+    state.lastNotificationTime = new Date();
+    console.log(`    ✅ Notification sent and state updated`);
   }
 
   /**

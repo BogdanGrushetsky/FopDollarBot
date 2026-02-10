@@ -3,33 +3,32 @@ import { UsdService } from '../services/UsdService';
 
 export class BotHandlers {
   /**
-   * Main menu with inline buttons
+   * Main menu with reply keyboard (always visible at bottom)
    */
-  static getMainMenuKeyboard(): TelegramBot.InlineKeyboardMarkup {
+  static getMainMenuKeyboard(): TelegramBot.ReplyKeyboardMarkup {
     return {
-      inline_keyboard: [
+      keyboard: [
         [
-          { text: '➡️ Add USD', callback_data: 'add_usd' },
-          { text: '💰 Sell USD', callback_data: 'sell_usd' }
+          { text: '➕ Add USD' },
+          { text: '💰 Sell USD' }
         ],
         [
-          { text: '📊 Status', callback_data: 'status' }
-        ],
-        [
-          { text: '❓ Довідка', callback_data: 'help' }
+          { text: '📊 Status' },
+          { text: '❓ Help' }
         ]
-      ]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: false
     };
   }
 
   /**
-   * Back to main menu button
+   * Get reply keyboard markup options
    */
-  static getBackToMenuKeyboard(): TelegramBot.InlineKeyboardMarkup {
+  static getKeyboardOptions(): TelegramBot.SendMessageOptions {
     return {
-      inline_keyboard: [
-        [{ text: '🏠 Головне меню', callback_data: 'main_menu' }]
-      ]
+      reply_markup: this.getMainMenuKeyboard(),
+      parse_mode: 'HTML'
     };
   }
 
@@ -48,22 +47,20 @@ I will help you track your USD income with Ukrainian tax requirements.
 • Sell USD at Monobank rate
 • Calculate profit/loss using FIFO
 • Show unrealized P&L
+• Send automatic P&L updates 4 times per day
 
-Choose an action below:
+Use the menu buttons below:
     `;
     
-    bot.sendMessage(chatId, welcomeMessage, {
-      parse_mode: 'HTML',
-      reply_markup: this.getMainMenuKeyboard()
-    });
+    bot.sendMessage(chatId, welcomeMessage, this.getKeyboardOptions());
   }
 
   /**
-   * Handle add_usd callback
+   * Handle Add USD button
    */
   static handleAddUsdCallback(bot: TelegramBot, chatId: number): void {
     const message = `
-➡️ <b>Add USD Income</b>
+➕ <b>Add USD Income</b>
 
 To add income use the command:
 <code>/add_usd &lt;amount&gt; &lt;YYYY-MM-DD&gt;</code>
@@ -77,14 +74,11 @@ The bot will automatically:
 ✓ Increase your USD balance
     `;
 
-    bot.sendMessage(chatId, message, {
-      parse_mode: 'HTML',
-      reply_markup: this.getBackToMenuKeyboard()
-    });
+    bot.sendMessage(chatId, message, this.getKeyboardOptions());
   }
 
   /**
-   * Handle sell_usd callback
+   * Handle Sell USD button
    */
   static handleSellUsdCallback(bot: TelegramBot, chatId: number): void {
     const message = `
@@ -103,10 +97,7 @@ The bot will automatically:
 ✓ Calculate profit/loss
     `;
 
-    bot.sendMessage(chatId, message, {
-      parse_mode: 'HTML',
-      reply_markup: this.getBackToMenuKeyboard()
-    });
+    bot.sendMessage(chatId, message, this.getKeyboardOptions());
   }
 
   /**
@@ -129,6 +120,9 @@ Sell USD
 <b>/status</b>
 Show current balance and statistics
 
+<b>/test_notification</b>
+Test P&L notification (manual check)
+
 <b>/start</b>
 Main menu
 
@@ -141,12 +135,11 @@ Main menu
 <b>Profit/Loss</b> = (Sale amount in UAH) - (Tax base of sold USD)
 
 <b>Unrealized P&L</b> - shows potential result if all USD sold today.
+
+<b>🔔 Notifications</b> - You will receive automatic P&L updates 4 times per day (08:00, 12:00, 16:00, 20:00 Kyiv time).
     `;
 
-    bot.sendMessage(chatId, helpMessage, {
-      parse_mode: 'HTML',
-      reply_markup: this.getBackToMenuKeyboard()
-    });
+    bot.sendMessage(chatId, helpMessage, this.getKeyboardOptions());
   }
 
   /**
@@ -168,10 +161,7 @@ Main menu
         '❌ <b>Incorrect format</b>\n\n' +
         'Usage: <code>/add_usd &lt;amount&gt; &lt;YYYY-MM-DD&gt;</code>\n' +
         'Example: <code>/add_usd 100 2026-02-01</code>',
-        { 
-          parse_mode: 'HTML',
-          reply_markup: this.getBackToMenuKeyboard()
-        }
+        this.getKeyboardOptions()
       );
       return;
     }
@@ -181,9 +171,7 @@ Main menu
 
     // Validate amount
     if (isNaN(amount) || amount <= 0) {
-      bot.sendMessage(chatId, '❌ Amount must be a positive number', {
-        reply_markup: this.getBackToMenuKeyboard()
-      });
+      bot.sendMessage(chatId, '❌ Amount must be a positive number', this.getKeyboardOptions());
       return;
     }
 
@@ -194,18 +182,13 @@ Main menu
         '❌ Incorrect date format\n\n' +
         'Use format: <code>YYYY-MM-DD</code>\n' +
         'Example: <code>2026-02-01</code>',
-        { 
-          parse_mode: 'HTML',
-          reply_markup: this.getBackToMenuKeyboard()
-        }
+        this.getKeyboardOptions()
       );
       return;
     }
 
     if (date > new Date()) {
-      bot.sendMessage(chatId, '❌ Дата не може бути в майбутньому', {
-        reply_markup: this.getBackToMenuKeyboard()
-      });
+      bot.sendMessage(chatId, '❌ Date cannot be in the future', this.getKeyboardOptions());
       return;
     }
 
@@ -229,14 +212,9 @@ Main menu
 💰 Your balance: <b>$${result.newBalance.toFixed(2)}</b>
       `;
       
-      bot.sendMessage(chatId, message, {
-        parse_mode: 'HTML',
-        reply_markup: this.getBackToMenuKeyboard()
-      });
+      bot.sendMessage(chatId, message, this.getKeyboardOptions());
     } else {
-      bot.sendMessage(chatId, `❌ ${result.message}`, {
-        reply_markup: this.getBackToMenuKeyboard()
-      });
+      bot.sendMessage(chatId, `❌ ${result.message}`, this.getKeyboardOptions());
     }
   }
 
@@ -259,10 +237,7 @@ Main menu
         '❌ <b>Incorrect format</b>\n\n' +
         'Usage: <code>/sell_usd &lt;amount&gt; &lt;YYYY-MM-DD&gt;</code>\n' +
         'Example: <code>/sell_usd 50 2026-02-04</code>',
-        { 
-          parse_mode: 'HTML',
-          reply_markup: this.getBackToMenuKeyboard()
-        }
+        this.getKeyboardOptions()
       );
       return;
     }
@@ -272,9 +247,7 @@ Main menu
 
     // Validate amount
     if (isNaN(amount) || amount <= 0) {
-      bot.sendMessage(chatId, '❌ Amount must be a positive number', {
-        reply_markup: this.getBackToMenuKeyboard()
-      });
+      bot.sendMessage(chatId, '❌ Amount must be a positive number', this.getKeyboardOptions());
       return;
     }
 
@@ -285,19 +258,14 @@ Main menu
         '❌ Incorrect date format\n\n' +
         'Use format: <code>YYYY-MM-DD</code>\n' +
         'Example: <code>2026-02-04</code>',
-        { 
-          parse_mode: 'HTML',
-          reply_markup: this.getBackToMenuKeyboard()
-        }
+        this.getKeyboardOptions()
       );
       return;
     }
 
     // Check that date is not in future
     if (date > new Date()) {
-      bot.sendMessage(chatId, '❌ Date cannot be in the future', {
-        reply_markup: this.getBackToMenuKeyboard()
-      });
+      bot.sendMessage(chatId, '❌ Date cannot be in the future', this.getKeyboardOptions());
       return;
     }
 
@@ -329,14 +297,9 @@ ${profitEmoji} ${profitText}
 💰 Your balance: <b>$${result.newBalance.toFixed(2)}</b>
       `;
 
-      bot.sendMessage(chatId, message, {
-        parse_mode: 'HTML',
-        reply_markup: this.getBackToMenuKeyboard()
-      });
+      bot.sendMessage(chatId, message, this.getKeyboardOptions());
     } else {
-      bot.sendMessage(chatId, `❌ ${result.message}`, {
-        reply_markup: this.getBackToMenuKeyboard()
-      });
+      bot.sendMessage(chatId, `❌ ${result.message}`, this.getKeyboardOptions());
     }
   }
 
@@ -355,10 +318,7 @@ ${profitEmoji} ${profitText}
         bot.sendMessage(chatId, 
           '📊 <b>You have no USD balance</b>\n\n' +
           'Use /add_usd to add income.', 
-          {
-            parse_mode: 'HTML',
-            reply_markup: this.getBackToMenuKeyboard()
-          }
+          this.getKeyboardOptions()
         );
         return;
       }
@@ -385,15 +345,12 @@ ${profitEmoji} <b>Unrealized Result:</b>
 ${profitText}
       `;
 
-      bot.sendMessage(chatId, message, {
-        parse_mode: 'HTML',
-        reply_markup: this.getBackToMenuKeyboard()
-      });
+      bot.sendMessage(chatId, message, this.getKeyboardOptions());
     } catch (error) {
       await bot.deleteMessage(chatId, loadingMsg.message_id);
       bot.sendMessage(chatId, 
         `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        { reply_markup: this.getBackToMenuKeyboard() }
+        this.getKeyboardOptions()
       );
     }
   }

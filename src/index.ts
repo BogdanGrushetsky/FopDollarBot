@@ -72,6 +72,14 @@ async function startBot(): Promise<void> {
     console.warn('⚠️ Open access mode (configure ALLOWED_USER_ID in .env)');
   }
 
+  // Auto-register user for notifications on any command
+  bot.on('message', (msg: TelegramBot.Message) => {
+    const userId = msg.from?.id;
+    if (userId && checkUserAccess(userId)) {
+      NotificationService.registerUser(userId, msg.chat.id);
+    }
+  });
+
   // Command /start
   bot.onText(/\/start/, (msg: TelegramBot.Message) => {
     const userId = msg.from?.id;
@@ -79,8 +87,6 @@ async function startBot(): Promise<void> {
       handleUnauthorized(bot, msg.chat.id);
       return;
     }
-    // Register user for P&L notifications
-    NotificationService.registerUser(userId, msg.chat.id);
     BotHandlers.handleStart(bot, msg.chat.id);
   });
 
@@ -117,46 +123,58 @@ async function startBot(): Promise<void> {
       handleUnauthorized(bot, msg.chat.id);
       return;
     }
-    // Register user for P&L notifications
-    NotificationService.registerUser(userId, msg.chat.id);
     BotHandlers.handleStatus(bot, msg.chat.id, userId);
   });
 
-  // Handle callback queries from inline buttons
-  bot.on('callback_query', (callbackQuery: TelegramBot.CallbackQuery) => {
-    const msg = callbackQuery.message;
-    const userId = callbackQuery.from.id;
+  // Command /test_notification - manually trigger notification check
+  bot.onText(/\/test_notification/, async (msg: TelegramBot.Message) => {
+    const userId = msg.from?.id;
+    if (!userId || !checkUserAccess(userId)) {
+      handleUnauthorized(bot, msg.chat.id);
+      return;
+    }
     
-    if (!msg || !checkUserAccess(userId)) {
-      bot.answerCallbackQuery(callbackQuery.id, { text: '🚫 Доступ заборонено' });
+    const chatId = msg.chat.id;
+    console.log(`🧪 Manual notification test triggered by user ${userId}`);
+    
+    try {
+      await NotificationService.testNotification(bot, userId, chatId);
+    } catch (error) {
+      bot.sendMessage(chatId, `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  });
+
+  // Handle reply keyboard button presses (plain text messages)
+  bot.on('message', (msg: TelegramBot.Message) => {
+    const userId = msg.from?.id;
+    const chatId = msg.chat.id;
+    const text = msg.text;
+
+    // Skip if no text or if it's a command
+    if (!text || text.startsWith('/')) {
       return;
     }
 
-    const chatId = msg.chat.id;
-    const data = callbackQuery.data;
+    // Check access
+    if (!userId || !checkUserAccess(userId)) {
+      handleUnauthorized(bot, chatId);
+      return;
+    }
 
-    // Answer callback
-    bot.answerCallbackQuery(callbackQuery.id);
-
-    // Handle different callbacks
-    switch (data) {
-      case 'main_menu':
-        BotHandlers.handleStart(bot, chatId);
-        break;
-      case 'add_usd':
+    // Handle keyboard buttons by text
+    switch (text) {
+      case '➕ Add USD':
         BotHandlers.handleAddUsdCallback(bot, chatId);
         break;
-      case 'sell_usd':
+      case '💰 Sell USD':
         BotHandlers.handleSellUsdCallback(bot, chatId);
         break;
-      case 'status':
+      case '📊 Status':
         BotHandlers.handleStatus(bot, chatId, userId);
         break;
-      case 'help':
+      case '❓ Help':
         BotHandlers.handleHelp(bot, chatId);
         break;
-      default:
-        bot.sendMessage(chatId, '❌ Невідома команда');
     }
   });
 
