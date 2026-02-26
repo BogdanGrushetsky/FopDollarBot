@@ -22,12 +22,24 @@ export interface SellUsdResult {
   newBalance: number;
 }
 
+export interface IncomeDetail {
+  date: Date;
+  amountUsd: number;
+  remainingUsd: number;
+  nbuRate: number;
+  taxBaseUah: number;
+  remainingTaxBase: number;
+  currentValueUah: number;
+  unrealizedProfitUah: number;
+}
+
 export interface StatusResult {
   balanceUsd: number;
   taxBaseUah: number;
   currentValueUah: number;
   unrealizedProfitUah: number;
   currentMonobankRate: number;
+  incomes: IncomeDetail[];
 }
 
 export class UsdService {
@@ -183,25 +195,42 @@ export class UsdService {
    * Get current status
    */
   static async getStatus(userId: number): Promise<StatusResult> {
-    // Get all incomes with remaining balance
+    // Get all incomes with remaining balance, sorted by date (FIFO order)
     const incomes = await UsdIncome.find({
       userId,
       remainingUsd: { $gt: 0 }
-    });
-
-    // Calculate USD balance and tax base
-    let balanceUsd = 0;
-    let taxBaseUah = 0;
-
-    for (const income of incomes) {
-      balanceUsd += income.remainingUsd;
-      // Tax base proportional to remaining amount
-      const taxBaseForRemaining = (income.remainingUsd / income.amountUsd) * income.taxBaseUah;
-      taxBaseUah += taxBaseForRemaining;
-    }
+    }).sort({ date: 1 });
 
     // Get current Monobank rate
     const currentMonobankRate = await CurrencyService.getCurrentMonobankBuyRate();
+
+    // Calculate USD balance, tax base and detailed info for each income
+    let balanceUsd = 0;
+    let taxBaseUah = 0;
+    const incomeDetails: IncomeDetail[] = [];
+
+    for (const income of incomes) {
+      balanceUsd += income.remainingUsd;
+      
+      // Tax base proportional to remaining amount
+      const remainingTaxBase = (income.remainingUsd / income.amountUsd) * income.taxBaseUah;
+      taxBaseUah += remainingTaxBase;
+
+      // Current value and P&L for this specific income
+      const currentValueUah = income.remainingUsd * currentMonobankRate;
+      const unrealizedProfitUah = currentValueUah - remainingTaxBase;
+
+      incomeDetails.push({
+        date: income.date,
+        amountUsd: income.amountUsd,
+        remainingUsd: income.remainingUsd,
+        nbuRate: income.nbuRate,
+        taxBaseUah: income.taxBaseUah,
+        remainingTaxBase,
+        currentValueUah,
+        unrealizedProfitUah
+      });
+    }
 
     // Calculate current value and unrealized P&L
     const currentValueUah = balanceUsd * currentMonobankRate;
@@ -212,7 +241,8 @@ export class UsdService {
       taxBaseUah,
       currentValueUah,
       unrealizedProfitUah,
-      currentMonobankRate
+      currentMonobankRate,
+      incomes: incomeDetails
     };
   }
 

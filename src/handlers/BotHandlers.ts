@@ -328,21 +328,51 @@ ${profitEmoji} ${profitText}
         ? `<b>+${status.unrealizedProfitUah.toFixed(2)} UAH</b>`
         : `<b>${status.unrealizedProfitUah.toFixed(2)} UAH</b>`;
 
+      // Build detailed income information
+      let incomesText = '';
+      status.incomes.forEach((income, index) => {
+        const incomeProfit = income.unrealizedProfitUah;
+        const incomeProfitEmoji = incomeProfit >= 0 ? '💰' : '📉';
+        const incomeProfitText = incomeProfit >= 0 
+          ? `+${incomeProfit.toFixed(2)}`
+          : `${incomeProfit.toFixed(2)}`;
+
+        const soldAmount = income.amountUsd - income.remainingUsd;
+        const soldText = soldAmount > 0 
+          ? ` (продано: $${soldAmount.toFixed(2)})`
+          : '';
+
+        incomesText += `
+<b>${index + 1}. 📅 ${income.date.toISOString().split('T')[0]}</b>
+   💵 Надійшло: $${income.amountUsd.toFixed(2)}${soldText}
+   📊 Залишок: <b>$${income.remainingUsd.toFixed(2)}</b>
+   💱 Курс НБУ: ${income.nbuRate.toFixed(2)} UAH
+   📋 База оподаткування: ${income.remainingTaxBase.toFixed(2)} UAH
+   💸 Поточна вартість: ${income.currentValueUah.toFixed(2)} UAH
+   ${incomeProfitEmoji} Результат: ${incomeProfitText} UAH
+`;
+      });
+
       const message = `
 📊 <b>Your Status</b>
 
 ━━━━━━━━━━━━━━━━
-💵 <b>USD Balance:</b> $${status.balanceUsd.toFixed(2)}
+💵 <b>Загальний баланс USD:</b> $${status.balanceUsd.toFixed(2)}
 
-📋 <b>Tax Base (NBU):</b>
+📋 <b>База оподаткування (НБУ):</b>
 ${status.taxBaseUah.toFixed(2)} UAH
 
-💱 <b>Current Value (Monobank):</b>
+💱 <b>Поточна вартість (Монобанк):</b>
 ${status.currentValueUah.toFixed(2)} UAH
-<i>Rate: ${status.currentMonobankRate.toFixed(2)} UAH</i>
+<i>Курс: ${status.currentMonobankRate.toFixed(2)} UAH</i>
 
-${profitEmoji} <b>Unrealized Result:</b>
+${profitEmoji} <b>Загальний нереалізований результат:</b>
 ${profitText}
+
+━━━━━━━━━━━━━━━━
+📝 <b>Детально по надходженням:</b>
+${incomesText}
+<i>💡 При продажу списання йде по FIFO (перше надходження - перше списується)</i>
       `;
 
       bot.sendMessage(chatId, message, this.getKeyboardOptions());

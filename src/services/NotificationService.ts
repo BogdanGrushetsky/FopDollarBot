@@ -149,19 +149,35 @@ export class NotificationService {
       : `<b>${status.unrealizedProfitUah.toFixed(2)} UAH</b>`;
 
     const changeText = state.lastNotifiedPnL !== 0
-      ? `\n📊 Change: ${(status.unrealizedProfitUah - state.lastNotifiedPnL).toFixed(2)} UAH`
+      ? `\n📊 Зміна: ${(status.unrealizedProfitUah - state.lastNotifiedPnL).toFixed(2)} UAH`
       : '';
+
+    // Build detailed income information
+    let incomesText = '';
+    if (status.incomes && status.incomes.length > 0) {
+      incomesText = '\n━━━━━━━━━━━━━━━━\n📝 <b>По надходженням:</b>\n';
+      status.incomes.forEach((income: any, index: number) => {
+        const incomeProfit = income.unrealizedProfitUah;
+        const incomeProfitEmoji = incomeProfit >= 0 ? '💰' : '📉';
+        const incomeProfitText = incomeProfit >= 0 
+          ? `+${incomeProfit.toFixed(2)}`
+          : `${incomeProfit.toFixed(2)}`;
+
+        incomesText += `\n<b>${index + 1}. ${income.date.toISOString().split('T')[0]}</b>`;
+        incomesText += `\n   💵 $${income.remainingUsd.toFixed(2)} | ${incomeProfitEmoji} ${incomeProfitText} UAH`;
+      });
+    }
 
     const message = `
 🔔 <b>P&L Update</b>
 
-💵 USD Balance: $${status.balanceUsd.toFixed(2)}
-💱 Monobank Rate: <b>${status.currentMonobankRate.toFixed(2)} UAH</b>
-${profitEmoji} Unrealized P&L: ${profitText}${changeText}
+💵 Баланс USD: $${status.balanceUsd.toFixed(2)}
+💱 Курс Монобанк: <b>${status.currentMonobankRate.toFixed(2)} UAH</b>
+${profitEmoji} Нереалізований P&L: ${profitText}${changeText}
 
 ━━━━━━━━━━━━━━━━
-📋 Tax Base: ${status.taxBaseUah.toFixed(2)} UAH
-💰 Current Value: ${status.currentValueUah.toFixed(2)} UAH
+📋 База оподаткування: ${status.taxBaseUah.toFixed(2)} UAH
+💰 Поточна вартість: ${status.currentValueUah.toFixed(2)} UAH${incomesText}
     `;
 
     try {

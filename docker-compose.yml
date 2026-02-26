@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fop-dollar-bot
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      MONGODB_URI: ${MONGODB_URI}
+      ALLOWED_USER_ID: ${ALLOWED_USER_ID}
+      TZ: Europe/Kiev
