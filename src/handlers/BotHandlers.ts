@@ -14,6 +14,9 @@ export class BotHandlers {
         ],
         [
           { text: '📊 Status' },
+          { text: '📜 History' }
+        ],
+        [
           { text: '❓ Help' }
         ]
       ],

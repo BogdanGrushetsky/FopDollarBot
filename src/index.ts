@@ -188,6 +188,9 @@ async function startBot(): Promise<void> {
       case '📊 Status':
         BotHandlers.handleStatus(bot, chatId, userId);
         break;
+      case '📜 History':
+        BotHandlers.handleHistory(bot, chatId, userId);
+        break;
       case '❓ Help':
         BotHandlers.handleHelp(bot, chatId);
         break;
