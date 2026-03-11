@@ -40,8 +40,5 @@ RUN chown -R nodejs:nodejs /app
 # Switch to non-root user
 USER nodejs
 
-# Expose port (if needed in future)
-EXPOSE 3000
-
 # Start the bot
 CMD ["node", "dist/index.js"]

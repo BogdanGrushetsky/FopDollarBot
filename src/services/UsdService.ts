@@ -16,6 +16,7 @@ export interface SellUsdResult {
   message: string;
   amountUsd: number;
   monobankRate: number;
+  rateSource: 'monobank' | 'nbu';
   sellUah: number;
   taxBaseUah: number;
   profit: number;
@@ -40,6 +41,15 @@ export interface StatusResult {
   unrealizedProfitUah: number;
   currentMonobankRate: number;
   incomes: IncomeDetail[];
+}
+
+export interface SaleHistoryItem {
+  sellDate: Date;
+  amountUsd: number;
+  monobankRate: number;
+  sellUah: number;
+  taxBaseUah: number;
+  profit: number;
 }
 
 export class UsdService {
@@ -103,6 +113,7 @@ export class UsdService {
           message: `❌ Insufficient USD. Your balance: $${balance.toFixed(2)}`,
           amountUsd: 0,
           monobankRate: 0,
+          rateSource: 'monobank' as const,
           sellUah: 0,
           taxBaseUah: 0,
           profit: 0,
@@ -110,7 +121,13 @@ export class UsdService {
         };
       }
 
-      // Get Monobank rate for sell date
+      // Determine rate source: Monobank only available for today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const sellDay = new Date(sellDate);
+      sellDay.setHours(0, 0, 0, 0);
+      const rateSource: 'monobank' | 'nbu' = sellDay.getTime() === today.getTime() ? 'monobank' : 'nbu';
+
       const monobankRate = await CurrencyService.getMonobankBuyRate(sellDate);
 
       // Get incomes by FIFO (oldest first with remaining balance)
@@ -169,9 +186,10 @@ export class UsdService {
 
       return {
         success: true,
-        message: `✅ Sold $${amountUsd.toFixed(2)}\nMonobank rate: ${monobankRate.toFixed(2)} UAH\nReceived: ${sellUah.toFixed(2)} UAH\nTax base: ${totalTaxBase.toFixed(2)} UAH\n${profitText}`,
+        message: `✅ Sold $${amountUsd.toFixed(2)}\nRate: ${monobankRate.toFixed(2)} UAH\nReceived: ${sellUah.toFixed(2)} UAH\nTax base: ${totalTaxBase.toFixed(2)} UAH\n${profitText}`,
         amountUsd,
         monobankRate,
+        rateSource,
         sellUah,
         taxBaseUah: totalTaxBase,
         profit,
@@ -183,6 +201,7 @@ export class UsdService {
         message: `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         amountUsd: 0,
         monobankRate: 0,
+        rateSource: 'monobank' as const,
         sellUah: 0,
         taxBaseUah: 0,
         profit: 0,
@@ -247,14 +266,31 @@ export class UsdService {
   }
 
   /**
-   * Get current USD balance
+   * Get current USD balance using aggregation (single DB round-trip)
    */
   static async getBalance(userId: number): Promise<number> {
-    const incomes = await UsdIncome.find({
-      userId,
-      remainingUsd: { $gt: 0 }
-    });
+    const result = await UsdIncome.aggregate<{ total: number }>([
+      { $match: { userId, remainingUsd: { $gt: 0 } } },
+      { $group: { _id: null, total: { $sum: '$remainingUsd' } } }
+    ]);
+    return result[0]?.total ?? 0;
+  }
 
-    return incomes.reduce((sum: number, income) => sum + income.remainingUsd, 0);
+  /**
+   * Get recent sales history
+   */
+  static async getHistory(userId: number, limit = 10): Promise<SaleHistoryItem[]> {
+    const sales = await UsdSale.find({ userId })
+      .sort({ sellDate: -1 })
+      .limit(limit);
+
+    return sales.map(s => ({
+      sellDate: s.sellDate,
+      amountUsd: s.amountUsd,
+      monobankRate: s.monobankRate,
+      sellUah: s.sellUah,
+      taxBaseUah: s.taxBaseUah,
+      profit: s.profit
+    }));
   }
 }

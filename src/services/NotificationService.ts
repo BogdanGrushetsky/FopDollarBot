@@ -1,10 +1,10 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { UsdService } from './UsdService';
+import { UsdService, StatusResult } from './UsdService';
 
 interface UserNotificationState {
   userId: number;
   chatId: number;
-  lastNotifiedPnL: number;
+  lastNotifiedPnL: number | null; // null = never notified
   lastNotifiedRate: number;
   lastNotificationTime: Date;
 }
@@ -21,7 +21,7 @@ export class NotificationService {
       this.userStates.set(userId, {
         userId,
         chatId,
-        lastNotifiedPnL: 0,
+        lastNotifiedPnL: null,
         lastNotifiedRate: 0,
         lastNotificationTime: new Date(0) // Long time ago
       });
@@ -41,7 +41,7 @@ export class NotificationService {
       state = {
         userId,
         chatId,
-        lastNotifiedPnL: 0,
+        lastNotifiedPnL: null,
         lastNotifiedRate: 0,
         lastNotificationTime: new Date(0)
       };
@@ -140,15 +140,15 @@ export class NotificationService {
   private static async sendPnLNotification(
     bot: TelegramBot,
     chatId: number,
-    status: any,
+    status: StatusResult,
     state: UserNotificationState
   ): Promise<void> {
     const profitEmoji = status.unrealizedProfitUah >= 0 ? '💰' : '📉';
-    const profitText = status.unrealizedProfitUah >= 0 
+    const profitText = status.unrealizedProfitUah >= 0
       ? `<b>+${status.unrealizedProfitUah.toFixed(2)} UAH</b>`
       : `<b>${status.unrealizedProfitUah.toFixed(2)} UAH</b>`;
 
-    const changeText = state.lastNotifiedPnL !== 0
+    const changeText = state.lastNotifiedPnL !== null
       ? `\n📊 Зміна: ${(status.unrealizedProfitUah - state.lastNotifiedPnL).toFixed(2)} UAH`
       : '';
 
@@ -156,14 +156,16 @@ export class NotificationService {
     let incomesText = '';
     if (status.incomes && status.incomes.length > 0) {
       incomesText = '\n━━━━━━━━━━━━━━━━\n📝 <b>По надходженням:</b>\n';
-      status.incomes.forEach((income: any, index: number) => {
+      status.incomes.forEach((income, index) => {
         const incomeProfit = income.unrealizedProfitUah;
         const incomeProfitEmoji = incomeProfit >= 0 ? '💰' : '📉';
-        const incomeProfitText = incomeProfit >= 0 
+        const incomeProfitText = incomeProfit >= 0
           ? `+${incomeProfit.toFixed(2)}`
           : `${incomeProfit.toFixed(2)}`;
 
-        incomesText += `\n<b>${index + 1}. ${income.date.toISOString().split('T')[0]}</b>`;
+        const d = income.date;
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        incomesText += `\n<b>${index + 1}. ${dateStr}</b>`;
         incomesText += `\n   💵 $${income.remainingUsd.toFixed(2)} | ${incomeProfitEmoji} ${incomeProfitText} UAH`;
       });
     }

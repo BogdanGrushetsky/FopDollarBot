@@ -72,13 +72,6 @@ async function startBot(): Promise<void> {
     console.warn('⚠️ Open access mode (configure ALLOWED_USER_ID in .env)');
   }
 
-  // Auto-register user for notifications on any command
-  bot.on('message', (msg: TelegramBot.Message) => {
-    const userId = msg.from?.id;
-    if (userId && checkUserAccess(userId)) {
-      NotificationService.registerUser(userId, msg.chat.id);
-    }
-  });
 
   // Command /start
   bot.onText(/\/start/, (msg: TelegramBot.Message) => {
@@ -144,18 +137,41 @@ async function startBot(): Promise<void> {
     }
   });
 
-  // Handle reply keyboard button presses (plain text messages)
+  bot.onText(/\/history/, async (msg: TelegramBot.Message) => {
+    const userId = msg.from?.id;
+    if (!userId || !checkUserAccess(userId)) {
+      handleUnauthorized(bot, msg.chat.id);
+      return;
+    }
+    BotHandlers.handleHistory(bot, msg.chat.id, userId);
+  });
+
+  // Handle all plain-text messages (keyboard buttons + unknown commands)
   bot.on('message', (msg: TelegramBot.Message) => {
     const userId = msg.from?.id;
     const chatId = msg.chat.id;
     const text = msg.text;
 
-    // Skip if no text or if it's a command
-    if (!text || text.startsWith('/')) {
+    if (!text) return;
+
+    // Auto-register user for notifications
+    if (userId && checkUserAccess(userId)) {
+      NotificationService.registerUser(userId, chatId);
+    }
+
+    // Skip commands — handled by onText listeners above
+    if (text.startsWith('/')) {
+      if (!text.match(/^\/(start|help|add_usd|sell_usd|status|history|test_notification)/)) {
+        if (!userId || !checkUserAccess(userId)) {
+          handleUnauthorized(bot, chatId);
+          return;
+        }
+        bot.sendMessage(chatId, '❌ Unknown command. Use /help for list of available commands.');
+      }
       return;
     }
 
-    // Check access
+    // Check access for keyboard buttons
     if (!userId || !checkUserAccess(userId)) {
       handleUnauthorized(bot, chatId);
       return;
@@ -183,20 +199,6 @@ async function startBot(): Promise<void> {
     console.error('Polling error:', error);
   });
 
-  // Handle unknown commands
-  bot.on('message', (msg: TelegramBot.Message) => {
-    const userId = msg.from?.id;
-    const text = msg.text;
-    
-    if (text && text.startsWith('/') && !text.match(/^\/(start|help|add_usd|sell_usd|status)/)) {
-      if (!userId || !checkUserAccess(userId)) {
-        handleUnauthorized(bot, msg.chat.id);
-        return;
-      }
-      bot.sendMessage(msg.chat.id, '❌ Unknown command. Use /help for list of available commands.');
-    }
-  });
-
   // Setup cron job for P&L notifications (4 times per day: 8:00, 12:00, 16:00, 20:00)
   cron.schedule('0 8,12,16,20 * * *', async () => {
     console.log('🔔 Running scheduled P&L check...');
@@ -214,10 +216,13 @@ startBot().catch((error) => {
   process.exit(1);
 });
 
-// Handle graceful shutdown
-process.on('SIGINT', async () => {
-  console.log('\n⏹️  Stopping bot...');
+// Handle graceful shutdown (SIGINT = Ctrl+C, SIGTERM = Docker stop)
+async function shutdown(signal: string): Promise<void> {
+  console.log(`\n⏹️  Stopping bot (${signal})...`);
   await mongoose.disconnect();
   console.log('✅ Disconnected from MongoDB');
   process.exit(0);
-});
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

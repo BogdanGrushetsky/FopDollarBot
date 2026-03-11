@@ -120,6 +120,9 @@ Sell USD
 <b>/status</b>
 Show current balance and statistics
 
+<b>/history</b>
+Show last 10 sales with P&L
+
 <b>/test_notification</b>
 Test P&L notification (manual check)
 
@@ -194,27 +197,32 @@ Main menu
 
     // Execute add USD
     const loadingMsg = await bot.sendMessage(chatId, '⏳ Getting NBU rate...');
-    
-    const result = await UsdService.addUsd(userId, amount, date);
-    
-    await bot.deleteMessage(chatId, loadingMsg.message_id);
-    
-    if (result.success) {
-      const message = `
+
+    try {
+      const result = await UsdService.addUsd(userId, amount, date);
+
+      await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+
+      if (result.success) {
+        const message = `
 ✅ <b>Income added</b>
 
 💵 Amount: <b>$${result.amountUsd.toFixed(2)}</b>
-📅 Date: ${date.toISOString().split('T')[0]}
+📅 Date: ${dateStr}
 📈 NBU rate: <b>${result.nbuRate.toFixed(2)} UAH</b>
 💼 Tax base: <b>${result.taxBaseUah.toFixed(2)} UAH</b>
 
 ━━━━━━━━━━━━━━━━
 💰 Your balance: <b>$${result.newBalance.toFixed(2)}</b>
-      `;
-      
-      bot.sendMessage(chatId, message, this.getKeyboardOptions());
-    } else {
-      bot.sendMessage(chatId, `❌ ${result.message}`, this.getKeyboardOptions());
+        `;
+
+        bot.sendMessage(chatId, message, this.getKeyboardOptions());
+      } else {
+        bot.sendMessage(chatId, `❌ ${result.message}`, this.getKeyboardOptions());
+      }
+    } catch (error) {
+      await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+      bot.sendMessage(chatId, `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`, this.getKeyboardOptions());
     }
   }
 
@@ -270,36 +278,48 @@ Main menu
     }
 
     // Execute sell USD
-    const loadingMsg = await bot.sendMessage(chatId, '⏳ Getting Monobank rate...');
-    
-    const result = await UsdService.sellUsd(userId, amount, date);
-    
-    await bot.deleteMessage(chatId, loadingMsg.message_id);
-    
-    if (result.success) {
-      const profitEmoji = result.profit >= 0 ? '💰' : '📉';
-      const profitText = result.profit >= 0 
-        ? `Profit: <b>+${result.profit.toFixed(2)} UAH</b>`
-        : `Loss: <b>${result.profit.toFixed(2)} UAH</b>`;
+    const loadingMsg = await bot.sendMessage(chatId, '⏳ Getting rate...');
 
-      const message = `
+    try {
+      const result = await UsdService.sellUsd(userId, amount, date);
+
+      await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+
+      if (result.success) {
+        const profitEmoji = result.profit >= 0 ? '💰' : '📉';
+        const profitText = result.profit >= 0
+          ? `Profit: <b>+${result.profit.toFixed(2)} UAH</b>`
+          : `Loss: <b>${result.profit.toFixed(2)} UAH</b>`;
+
+        const rateLabel = result.rateSource === 'nbu'
+          ? '💱 NBU rate (past date): '
+          : '💱 Monobank rate: ';
+        const nbuNote = result.rateSource === 'nbu'
+          ? '\n<i>ℹ️ Monobank rate not available for past dates — NBU rate used</i>'
+          : '';
+
+        const message = `
 ✅ <b>USD sold</b>
 
 💵 Amount: <b>$${result.amountUsd.toFixed(2)}</b>
-📅 Date: ${date.toISOString().split('T')[0]}
-💱 Monobank rate: <b>${result.monobankRate.toFixed(2)} UAH</b>
+📅 Date: ${dateStr}
+${rateLabel}<b>${result.monobankRate.toFixed(2)} UAH</b>
 💸 Received: <b>${result.sellUah.toFixed(2)} UAH</b>
 📋 Tax base: <b>${result.taxBaseUah.toFixed(2)} UAH</b>
 
-${profitEmoji} ${profitText}
+${profitEmoji} ${profitText}${nbuNote}
 
 ━━━━━━━━━━━━━━━━
 💰 Your balance: <b>$${result.newBalance.toFixed(2)}</b>
-      `;
+        `;
 
-      bot.sendMessage(chatId, message, this.getKeyboardOptions());
-    } else {
-      bot.sendMessage(chatId, `❌ ${result.message}`, this.getKeyboardOptions());
+        bot.sendMessage(chatId, message, this.getKeyboardOptions());
+      } else {
+        bot.sendMessage(chatId, `❌ ${result.message}`, this.getKeyboardOptions());
+      }
+    } catch (error) {
+      await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+      bot.sendMessage(chatId, `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`, this.getKeyboardOptions());
     }
   }
 
@@ -343,7 +363,7 @@ ${profitEmoji} ${profitText}
           : '';
 
         incomesText += `
-<b>${index + 1}. 📅 ${income.date.toISOString().split('T')[0]}</b>
+<b>${index + 1}. 📅 ${BotHandlers.formatDate(income.date)}</b>
    💵 Надійшло: $${income.amountUsd.toFixed(2)}${soldText}
    📊 Залишок: <b>$${income.remainingUsd.toFixed(2)}</b>
    💱 Курс НБУ: ${income.nbuRate.toFixed(2)} UAH
@@ -386,18 +406,88 @@ ${incomesText}
   }
 
   /**
-   * Parse date from YYYY-MM-DD format
+   * Handle /history command
+   */
+  static async handleHistory(bot: TelegramBot, chatId: number, userId: number): Promise<void> {
+    const loadingMsg = await bot.sendMessage(chatId, '⏳ Getting history...');
+
+    try {
+      const sales = await UsdService.getHistory(userId, 10);
+
+      await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+
+      if (sales.length === 0) {
+        bot.sendMessage(chatId,
+          '📜 <b>No sales yet</b>\n\nUse /sell_usd to record a sale.',
+          this.getKeyboardOptions()
+        );
+        return;
+      }
+
+      let salesText = '';
+      let totalProfit = 0;
+
+      sales.forEach((sale, index) => {
+        const profitEmoji = sale.profit >= 0 ? '💰' : '📉';
+        const profitText = sale.profit >= 0
+          ? `+${sale.profit.toFixed(2)}`
+          : `${sale.profit.toFixed(2)}`;
+        totalProfit += sale.profit;
+
+        salesText += `\n<b>${index + 1}. 📅 ${BotHandlers.formatDate(sale.sellDate)}</b>`;
+        salesText += `\n   💵 $${sale.amountUsd.toFixed(2)} × ${sale.monobankRate.toFixed(2)} = ${sale.sellUah.toFixed(2)} UAH`;
+        salesText += `\n   📋 База: ${sale.taxBaseUah.toFixed(2)} UAH`;
+        salesText += `\n   ${profitEmoji} Результат: <b>${profitText} UAH</b>\n`;
+      });
+
+      const totalEmoji = totalProfit >= 0 ? '💰' : '📉';
+      const totalText = totalProfit >= 0 ? `+${totalProfit.toFixed(2)}` : `${totalProfit.toFixed(2)}`;
+
+      const message = `
+📜 <b>Sales History</b> (last ${sales.length})
+━━━━━━━━━━━━━━━━
+${salesText}
+━━━━━━━━━━━━━━━━
+${totalEmoji} <b>Total P&L: ${totalText} UAH</b>
+      `;
+
+      bot.sendMessage(chatId, message, this.getKeyboardOptions());
+    } catch (error) {
+      await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+      bot.sendMessage(chatId,
+        `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        this.getKeyboardOptions()
+      );
+    }
+  }
+
+  /**
+   * Format Date to YYYY-MM-DD using local time (avoids UTC shift for Kyiv UTC+2/3)
+   */
+  static formatDate(date: Date): string {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  /**
+   * Parse date from YYYY-MM-DD format.
+   * Uses local midnight to avoid UTC timezone issues (e.g. Kyiv UTC+2/3).
    */
   private static parseDate(dateStr: string): Date | null {
-    const regex = /^\d{4}-\d{2}-\d{2}$/;
-    
-    if (!regex.test(dateStr)) {
-      return null;
-    }
+    const regex = /^(\d{4})-(\d{2})-(\d{2})$/;
+    const match = dateStr.match(regex);
 
-    const date = new Date(dateStr);
-    
-    if (isNaN(date.getTime())) {
+    if (!match) return null;
+
+    const [, year, month, day] = match.map(Number);
+    const date = new Date(year, month - 1, day); // local midnight
+
+    if (isNaN(date.getTime())) return null;
+
+    // Guard against overflow (e.g. Feb 31 silently becomes Mar 3)
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
       return null;
     }
 
